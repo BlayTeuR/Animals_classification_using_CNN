@@ -1,68 +1,69 @@
-# Convolutional autoencoder for representation learning (shark vs dolphin)
+# Marine species classification with a CNN (whale / shark / whale shark)
 
-A convolutional autoencoder, trained without labels on shark and dolphin images, whose encoder is then reused as a feature extractor. The quality of the learned representation is measured with a linear SVM probe, and the embedding space is visualised with t-SNE. Coursework for INF7370 (Machine Learning) at UQAM, Fall 2025.
+A convolutional neural network, trained from scratch in Keras, that tells three marine species apart from RGB images. Coursework for INF7370 (Machine Learning) at UQAM, Fall 2025.
 
-> **Result:** the autoencoder reaches a validation reconstruction MSE of **0.0038**. A linear SVM trained on its features gets **64.8 % ± 4.2** (5-fold CV) versus **59.2 %** for the same SVM on raw pixels, a gain of **+5.6 points** from unsupervised features alone.
+> **Result:** **91.9 % test accuracy** (2,756 / 3,000 images) and **macro-F1 0.919** on a held-out, class-balanced test set. The assignment's target was ≥ 90 %.
 
 ## Results
 
-**Reconstruction**
+| Split | Images | Accuracy | Loss |
+|---|---|---|---|
+| Train (best epoch) | 9,600 | 93.1 % | 0.184 |
+| Validation (best epoch) | 2,400 | 90.9 % | – |
+| **Test (held-out)** | **3,000** | **91.9 %** | **0.235** |
 
-| Metric | Value |
-|---|---|
-| Min training MSE | 0.00263 |
-| Min validation MSE | **0.00375** (epoch 44) |
-| Validation MSE of the first 2-block version | ≈ 0.005 |
-| Training time | 11.4 min (Colab GPU) |
+Per-class scores on the test set:
 
-<p align="center">
-  <img src="assets/loss_curve.png" width="55%" alt="Training and validation MSE per epoch"/>
-</p>
-<p align="center">
-  <img src="assets/reconstructions.png" width="60%" alt="Dolphin original / reconstruction, shark original / reconstruction"/><br/>
-  <sub>Left to right: dolphin (original, reconstruction) and shark (original, reconstruction). The global structure is kept and fine textures are smoothed out.</sub>
-</p>
-
-**Linear probe (600 test images, 5-fold CV)**
-
-| Input features | Classifier | Accuracy |
-|---|---|---|
-| Raw pixels | Linear SVM (grid-searched C) | 0.592 |
-| **Autoencoder features → StandardScaler → PCA(256)** | Linear SVM | **0.648 ± 0.042** |
+| Class | Precision | Recall | F1 |
+|---|---|---|---|
+| Whale | 0.897 | 0.897 | 0.897 |
+| Shark | 0.931 | 0.873 | 0.901 |
+| Whale shark | 0.929 | **0.986** | **0.958** |
+| *Macro average* | *0.919* | *0.919* | *0.919* |
 
 <p align="center">
-  <img src="assets/tsne_embedding.png" width="55%" alt="t-SNE of the learned embedding"/>
+  <img src="assets/confusion_matrix.png" width="45%" alt="Confusion matrix on the test set"/>
+  <img src="assets/accuracy_curve.png" width="50%" alt="Training and validation accuracy per epoch"/>
 </p>
 
-In the t-SNE plot the two classes separate partially but visibly. Sharks and dolphins share shape, colour and background (open water), so a linear boundary on unsupervised features stays hard to draw.
+**What the errors tell us:** whale shark is almost never missed (14 errors out of 1,000), because its spot pattern is distinctive. Most confusions are **shark → whale** (93 cases). When I inspected the misclassified images, they were mostly partial views, unusual angles, or low-contrast water where only the silhouette is visible.
 
 ## Method
 
-**Data.** 1,800 images per class, split 80/20 (2,880 for training, 720 for validation), plus 600 test images. Images are resized to 128×128 RGB. Light augmentation is applied to training only: rotation ±10°, shifts of 5 %, zoom 10 % and horizontal flip.
+**Data.** 4,000 images per class for training (12,000 in total), split 80/20 into train and validation, plus 1,000 images per class for testing. Images are resized to 128×128. I chose 128 over the native 256 px to reduce parameters and overfitting.
 
-**Architecture.** The encoder and decoder are symmetric. The bottleneck is a 16×16×128 tensor.
+**Augmentation.** Only on the training set: rotation ±30°, shifts of 15 %, shear 0.15, zoom 0.20, horizontal flip, and brightness in [0.6, 1.4]. Brightness mattered because the photos are outdoor underwater scenes.
+
+**Architecture.** The network has about 2.1 M parameters, half of them in the first dense layer. It is built as:
 
 ```
-Encoder: 3 × [ (Conv 3×3 → BN → ReLU) × 2 → MaxPool 2×2 ]   32 → 64 → 128 filters, Dropout 0.10 / 0.15
-Decoder: 3 × [ (Conv 3×3 → BN → ReLU) × 2 → UpSampling 2×2 ] 128 → 64 → 32 filters
-Output : Conv(3, 3×3) → Sigmoid   (128×128×3)
+Input 128×128×3
+→ 4 × [Conv2D(3×3) → BatchNorm → ReLU → MaxPool 2×2]   filters 32, 64, 128, 256
+→ Conv2D(256, 3×3) → ReLU → MaxPool
+→ Flatten (4,096) → Dense 256 → Dropout 0.5 → Dense 128 → Dropout 0.4 → Softmax(3)
 ```
 
-**Training.** MSE loss, Adam with learning rate 1e-3, batch size 32, and up to 60 epochs with early stopping (patience 10). Going from 2 blocks to 3, together with BatchNorm, light dropout and augmentation, cut the validation MSE from about 0.005 to 0.0038.
+**Training.** Adam with learning rate 8e-5, batch size 32, and up to 60 epochs. Early stopping watches `val_loss` with patience 12 and restores the best weights. Training took 53 minutes on a Colab GPU.
 
-## Known issue & v2 roadmap
-- **Probe layer.** The evaluation script takes the features at `layers[6]`, with shape 128×128×32, instead of the 16×16×128 bottleneck named `embedding`. The 64.8 % figure therefore measures early convolutional features, not the latent code. **Next step:** re-extract with `autoencoder.get_layer("embedding")` and re-run the probe.
-- The next thing to try is a supervised signal on the latent space, such as a joint classification head or a contrastive objective (SimCLR-style). A VAE could also give a smoother latent space.
-- For a fair comparison, run the pixel baseline with the same PCA(256) pipeline and report both over several seeds.
+**What moved the needle.** A first version plateaued at **85–88 %** test accuracy. Three changes pushed it past 90 %:
+1. stronger augmentation (brightness and shear),
+2. a lower learning rate (1e-4 and 5e-4 overfit early),
+3. longer training with early stopping.
+
+## Limitations & next steps
+- There is a single train/validation split and one seed, so no variance estimate. Repeating over 3–5 seeds would give a confidence interval.
+- The next baseline to try is transfer learning from a pretrained backbone (ResNet-50 or EfficientNet), which is likely to beat a from-scratch CNN on 12k images.
+- An automated hyperparameter search (e.g. Keras Tuner or Optuna) could replace the manual tuning.
 
 ## Reproduce
 
 ```bash
-pip install tensorflow scikit-learn matplotlib
-python 1_Modele_TP3.py        # trains the autoencoder and saves Model.keras
-python 2_Evaluation_TP3.py    # reconstructions, SVM probe, t-SNE
+pip install tensorflow scikit-learn matplotlib seaborn
+python 1_Modele.py       # trains and saves Model.keras
+python 2_Evaluation.py   # test accuracy, confusion matrix, misclassified images
 ```
+The expected layout is `donnees/entrainement/{baleine,requin,requinbaleine}` and `donnees/test/...`. The validation folder is created automatically (20 % per class). The dataset was provided by the course and is not redistributed here.
 
-Full report (FR): [`rapport_TP3_JALLAIS.pdf`](./rapport_TP3_JALLAIS.pdf)
+Full report (FR): [`Jallais_Bastien_raport_TP2.pdf`](./Jallais_Bastien_raport_TP2.pdf)
 
-**Stack:** Python · TensorFlow/Keras · scikit-learn (SVM, PCA, t-SNE) · Matplotlib
+**Stack:** Python · TensorFlow/Keras · scikit-learn · Matplotlib

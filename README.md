@@ -51,7 +51,7 @@ Output : Conv(3, 3×3) → Sigmoid   (128×128×3)
 **Training.** MSE loss, Adam with learning rate 1e-3, batch size 32, and up to 60 epochs with early stopping (patience 10). Going from 2 blocks to 3, together with BatchNorm, light dropout and augmentation, cut the validation MSE from about 0.005 to 0.0038.
 
 ## Known issue & v2 roadmap
- **Probe layer.** The evaluation script takes the features at `layers[6]`, with shape 128×128×32, instead of the 16×16×128 bottleneck named `embedding`. The 64.8 % figure therefore measures early convolutional features, not the latent code. **Next step:** re-extract with `autoencoder.get_layer("embedding")` and re-run the probe.
+- **Probe layer.** The evaluation script takes the features at `layers[6]`, with shape 128×128×32, instead of the 16×16×128 bottleneck named `embedding`. The 64.8 % figure therefore measures early convolutional features, not the latent code. **Next step:** re-extract with `autoencoder.get_layer("embedding")` and re-run the probe.
 - The next thing to try is a supervised signal on the latent space, such as a joint classification head or a contrastive objective (SimCLR-style). A VAE could also give a smoother latent space.
 - For a fair comparison, run the pixel baseline with the same PCA(256) pipeline and report both over several seeds.
 
